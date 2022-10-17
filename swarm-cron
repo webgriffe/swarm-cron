@@ -1,0 +1,135 @@
+#!/usr/bin/env php
+<?php
+
+declare(strict_types=1);
+
+use GuzzleHttp\Client;
+use GuzzleHttp\Exception\GuzzleException;
+use GuzzleHttp\Exception\RequestException;
+use Monolog\Handler\FilterHandler;
+use Monolog\Handler\StreamHandler;
+use Monolog\Level;
+use Monolog\Logger;
+
+require_once __DIR__ . '/vendor/autoload.php';
+
+const LOG_CHANNEL = 'swarm-cron';
+const DOCKER_STACK_NAME = 'swarm-cron';
+
+$logger = new Logger(LOG_CHANNEL);
+$stdoutHandler = new StreamHandler('php://stdout', Level::Debug);
+$stderrHandler = new StreamHandler('php://stderr', Level::Error);
+$logger->pushHandler(new FilterHandler($stdoutHandler, Level::Debug, Level::Warning));
+$logger->pushHandler($stderrHandler);
+
+$client = new Client(['base_uri' => 'http://localhost/v1.41/']);
+
+$subcommand = $argv[1] ?? null;
+if ($subcommand === 'crontab') {
+    exit(crontab());
+}
+if ($subcommand === 'run') {
+    exit(run($argv[2], $argv[3]));
+}
+if ($subcommand === 'cleanup') {
+    exit(cleanup());
+}
+echo 'Invalid subcommand.';
+// TODO print usage here.
+exit(1);
+
+function crontab(): int {
+    global $logger;
+    $crontabPath = '/etc/crontabs/swarm';
+    $crontab = getenv('SWARM_CRON_CRONTAB');
+    $crontabLines = array_map('trim', explode(PHP_EOL, $crontab));
+    $logger->info(sprintf('Starting crontab generation to: %s', $crontabPath));
+
+    $jobs = 0;
+    file_put_contents($crontabPath, '');
+    foreach ($crontabLines as $crontabLine) {
+        if ($crontabLine === '') {
+            continue;
+        }
+        if ($crontabLine[0] === '#') {
+            continue;
+        }
+        $crontabLineChunks = preg_split('/\s+/', $crontabLine, 7);
+        if (count($crontabLineChunks) < 7) {
+            $logger->error(sprintf('Crontab line "%s" is not valid and will be skipped.', $crontabLine));
+            continue;
+        }
+        $cronExpr = implode(' ', array_slice($crontabLineChunks, 0, 5));
+        $service = escapeshellarg($crontabLineChunks[5]);
+        $command = escapeshellarg($crontabLineChunks[6]);
+        $swarmCrontabLine = sprintf('%s /srv/app/swarm-cron run %s %s', $cronExpr, $service, $command);
+        file_put_contents($crontabPath, $swarmCrontabLine . PHP_EOL, FILE_APPEND);
+        $logger->info(sprintf('Crontab line: %s', $swarmCrontabLine));
+        $jobs++;
+    }
+
+    exec(sprintf('chmod 600 %s', escapeshellarg($crontabPath)));
+    exec(sprintf('crontab %s', escapeshellarg($crontabPath)));
+
+    $logger->info(sprintf('Crontab generated and activated with "%s" jobs!', $jobs));
+
+    return 0;
+}
+
+function run(string $service, string $command): int {
+    global $logger, $client;
+    $logger->info(sprintf('Preparing cron service with command "%s" and service "%s"', $command, $service));
+
+    try {
+        $response = $client->request('GET', 'services/' . $service, [
+            'query' => ['insertDefaults' => 1],
+            'curl' => [
+                CURLOPT_UNIX_SOCKET_PATH => '/var/run/docker.sock'
+            ]
+        ]);
+    } catch (RequestException $e) {
+        $logger->error(
+            sprintf(
+                'Cannot get service "%s": %s - %s',
+                $service,
+                $e->getResponse()?->getStatusCode() ?? '?',
+                (string) $e->getResponse()?->getBody()
+            )
+        );
+        return 1;
+    } catch (GuzzleException $e) {
+        $logger->error(sprintf('Unknown error: %s', json_encode($e->getTrace(), JSON_THROW_ON_ERROR)));
+        return 1;
+    }
+
+    $serviceData = json_decode((string)$response->getBody(), false, 512, JSON_THROW_ON_ERROR);
+    $swarmCronServiceId = md5($service . ':' . $command);
+    $serviceSpec = $serviceData->Spec;
+    $serviceSpec->Name = sprintf('swarm_cron_service_%s', $swarmCronServiceId);
+    $serviceSpec->TaskTemplate->ContainerSpec->Command = [$command];
+    $serviceSpec->TaskTemplate->ContainerSpec->Args = [];
+    $serviceSpec->TaskTemplate->RestartPolicy->Condition = 'none';
+    $serviceSpec->Mode = (object) ['ReplicatedJob' => ['MaxConcurrent' => 1, 'TotalCompletions' => 1]];
+    $serviceSpec->UpdateConfig = null;
+    $serviceSpec->Labels->{'com.docker.stack.namespace'} = DOCKER_STACK_NAME;
+
+    $logger->info(sprintf('Starting now cron service with command "%s" from service "%s"', $command, $service));
+    $logger->debug(sprintf('Cron service spec: %s', json_encode($serviceSpec, JSON_THROW_ON_ERROR)));
+
+    try {
+        // TODO Update if service already exist
+        $client->request('POST', 'services/create', [
+            'json' => $serviceSpec,
+            'curl' => [
+                CURLOPT_UNIX_SOCKET_PATH => '/var/run/docker.sock'
+            ]
+        ]);
+    } catch (GuzzleException $e) {
+        $logger->error(
+            sprintf('Unknown error: %s - %s', $e->getMessage(), json_encode($e->getTrace(), JSON_THROW_ON_ERROR))
+        );
+        return 1;
+    }
+
+    return 0;
+}
