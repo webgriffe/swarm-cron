@@ -105,16 +105,31 @@ function run(string $service, string $command): int {
 
     $cronServiceVersion = null;
     try {
-        $response = $client->request('GET', 'services/' . $cronServiceName, [
+        $response = $client->request('GET', 'services', [
+            'query' => [
+                'status' => 1,
+                'filters' => json_encode(['name' => [$cronServiceName]], JSON_THROW_ON_ERROR)
+            ],
             'curl' => [
                 CURLOPT_UNIX_SOCKET_PATH => '/var/run/docker.sock'
             ]
         ]);
-        $cronServiceData = json_decode((string)$response->getBody(), false, 512, JSON_THROW_ON_ERROR);
-        $cronServiceVersion = $cronServiceData->Version->Index;
-    } catch (RequestException $e) {
-        if ($e->getResponse()?->getStatusCode() !== 404) {
-            throw $e;
+        $foundServicesData = json_decode((string)$response->getBody(), false, 512, JSON_THROW_ON_ERROR);
+        if (count($foundServicesData) > 0) {
+            $cronServiceData = $foundServicesData[0];
+            if ($cronServiceData->ServiceStatus->RunningTasks > 0) {
+                $logger->info(
+                    sprintf(
+                        'Cron service "%s" with command "%s" from service "%s" is still running and will not be ' .
+                        're-started.',
+                        $cronServiceName,
+                        $command,
+                        $service
+                    )
+                );
+                return 0;
+            }
+            $cronServiceVersion = $cronServiceData->Version->Index;
         }
     } catch (GuzzleException $e) {
         $logger->error(
@@ -133,7 +148,7 @@ function run(string $service, string $command): int {
             ]);
             $logger->info(
                 sprintf(
-                    'Created cron service "%s" with command "%s" from service "%s"',
+                    'Started cron service "%s" with command "%s" from service "%s"',
                     $cronServiceName,
                     $command,
                     $service
@@ -151,7 +166,7 @@ function run(string $service, string $command): int {
         ]);
         $logger->info(
             sprintf(
-                'Updated cron service "%s" with command "%s" from service "%s"',
+                'Re-started cron service "%s" with command "%s" from service "%s"',
                 $cronServiceName,
                 $command,
                 $service
