@@ -101,6 +101,8 @@ function run(string $service, string $command): int {
     $cronServiceSpec->Mode = (object) ['ReplicatedJob' => ['MaxConcurrent' => 1, 'TotalCompletions' => 1]];
     $cronServiceSpec->UpdateConfig = null;
     $cronServiceSpec->Labels->{'com.docker.stack.namespace'} = DOCKER_STACK_NAME;
+    $cronServiceSpec->Labels->{'com.webgriffe.swarm-cron.service'} = $service;
+    $cronServiceSpec->Labels->{'com.webgriffe.swarm-cron.command'} = $command;
     $logger->debug(sprintf('Prepared cron service spec: %s', json_encode($cronServiceSpec, JSON_THROW_ON_ERROR)));
 
     $cronServiceVersion = null;
