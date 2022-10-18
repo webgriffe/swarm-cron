@@ -31,9 +31,6 @@ if ($subcommand === 'crontab') {
 if ($subcommand === 'run') {
     exit(run($argv[2], $argv[3]));
 }
-if ($subcommand === 'cleanup') {
-    exit(cleanup());
-}
 echo 'Invalid subcommand.';
 // TODO print usage here.
 exit(1);
@@ -87,46 +84,82 @@ function run(string $service, string $command): int {
                 CURLOPT_UNIX_SOCKET_PATH => '/var/run/docker.sock'
             ]
         ]);
-    } catch (RequestException $e) {
-        $logger->error(
-            sprintf(
-                'Cannot get service "%s": %s - %s',
-                $service,
-                $e->getResponse()?->getStatusCode() ?? '?',
-                (string) $e->getResponse()?->getBody()
-            )
-        );
-        return 1;
     } catch (GuzzleException $e) {
-        $logger->error(sprintf('Unknown error: %s', json_encode($e->getTrace(), JSON_THROW_ON_ERROR)));
+        $logger->error(
+            sprintf('Docker API error: %s - %s', $e->getMessage(), json_encode($e->getTrace(), JSON_THROW_ON_ERROR))
+        );
         return 1;
     }
 
-    $serviceData = json_decode((string)$response->getBody(), false, 512, JSON_THROW_ON_ERROR);
-    $swarmCronServiceId = md5($service . ':' . $command);
-    $serviceSpec = $serviceData->Spec;
-    $serviceSpec->Name = sprintf('swarm_cron_service_%s', $swarmCronServiceId);
-    $serviceSpec->TaskTemplate->ContainerSpec->Command = [$command];
-    $serviceSpec->TaskTemplate->ContainerSpec->Args = [];
-    $serviceSpec->TaskTemplate->RestartPolicy->Condition = 'none';
-    $serviceSpec->Mode = (object) ['ReplicatedJob' => ['MaxConcurrent' => 1, 'TotalCompletions' => 1]];
-    $serviceSpec->UpdateConfig = null;
-    $serviceSpec->Labels->{'com.docker.stack.namespace'} = DOCKER_STACK_NAME;
+    $sourceServiceData = json_decode((string)$response->getBody(), false, 512, JSON_THROW_ON_ERROR);
+    $cronServiceName = sprintf('swarm_cron_service_%s', md5($service . ':' . $command));
+    $cronServiceSpec = $sourceServiceData->Spec;
+    $cronServiceSpec->Name = $cronServiceName;
+    $cronServiceSpec->TaskTemplate->ContainerSpec->Command = [$command];
+    $cronServiceSpec->TaskTemplate->ContainerSpec->Args = [];
+    $cronServiceSpec->TaskTemplate->RestartPolicy->Condition = 'none';
+    $cronServiceSpec->Mode = (object) ['ReplicatedJob' => ['MaxConcurrent' => 1, 'TotalCompletions' => 1]];
+    $cronServiceSpec->UpdateConfig = null;
+    $cronServiceSpec->Labels->{'com.docker.stack.namespace'} = DOCKER_STACK_NAME;
+    $logger->debug(sprintf('Prepared cron service spec: %s', json_encode($cronServiceSpec, JSON_THROW_ON_ERROR)));
 
-    $logger->info(sprintf('Starting now cron service with command "%s" from service "%s"', $command, $service));
-    $logger->debug(sprintf('Cron service spec: %s', json_encode($serviceSpec, JSON_THROW_ON_ERROR)));
-
+    $cronServiceVersion = null;
     try {
-        // TODO Update if service already exist
-        $client->request('POST', 'services/create', [
-            'json' => $serviceSpec,
+        $response = $client->request('GET', 'services/' . $cronServiceName, [
             'curl' => [
                 CURLOPT_UNIX_SOCKET_PATH => '/var/run/docker.sock'
             ]
         ]);
+        $cronServiceData = json_decode((string)$response->getBody(), false, 512, JSON_THROW_ON_ERROR);
+        $cronServiceVersion = $cronServiceData->Version->Index;
+    } catch (RequestException $e) {
+        if ($e->getResponse()?->getStatusCode() !== 404) {
+            throw $e;
+        }
     } catch (GuzzleException $e) {
         $logger->error(
-            sprintf('Unknown error: %s - %s', $e->getMessage(), json_encode($e->getTrace(), JSON_THROW_ON_ERROR))
+            sprintf('Docker API error: %s - %s', $e->getMessage(), json_encode($e->getTrace(), JSON_THROW_ON_ERROR))
+        );
+        return 1;
+    }
+
+    try {
+        if ($cronServiceVersion === null) {
+            $client->request('POST', 'services/create', [
+                'json' => $cronServiceSpec,
+                'curl' => [
+                    CURLOPT_UNIX_SOCKET_PATH => '/var/run/docker.sock'
+                ]
+            ]);
+            $logger->info(
+                sprintf(
+                    'Created cron service "%s" with command "%s" from service "%s"',
+                    $cronServiceName,
+                    $command,
+                    $service
+                )
+            );
+            return 0;
+        }
+
+        $client->request('POST', 'services/' . $cronServiceName . '/update', [
+            'query' => ['version' => $cronServiceVersion],
+            'json' => $cronServiceSpec,
+            'curl' => [
+                CURLOPT_UNIX_SOCKET_PATH => '/var/run/docker.sock'
+            ]
+        ]);
+        $logger->info(
+            sprintf(
+                'Updated cron service "%s" with command "%s" from service "%s"',
+                $cronServiceName,
+                $command,
+                $service
+            )
+        );
+    } catch (GuzzleException $e) {
+        $logger->error(
+            sprintf('Docker API error: %s - %s', $e->getMessage(), json_encode($e->getTrace(), JSON_THROW_ON_ERROR))
         );
         return 1;
     }
