@@ -1,6 +1,6 @@
 FROM php:8.1-cli-alpine
 
-RUN apk add tini
+RUN apk add --no-cache tini
 
 COPY --from=composer:latest /usr/bin/composer /usr/bin/composer
 # https://getcomposer.org/doc/03-cli.md#composer-allow-superuser
