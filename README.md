@@ -40,6 +40,12 @@ services:
     # ... all other services
     swarm_cron:
         image: webgriffe/swarm-cron
+        volumes:
+            - "/var/run/docker.sock:/var/run/docker.sock"
+        deploy:
+            placement:
+                constraints:
+                    - node.role == manager        
         environment:
             SWARM_CRON_CRONTAB: |
                 * * * * *        my_app    bin/cron1
