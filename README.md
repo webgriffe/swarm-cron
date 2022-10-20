@@ -4,14 +4,14 @@ This tool allows to schedule cron jobs using existing services running on Docker
 
 ## Usage
 
-Given you have the following `docker-compose.yml` file deployed with `docker stack deploy -c docker-compose.yml my-app`:
+Given you have the following `docker-compose.yml` file deployed with `docker stack deploy -c docker-compose.yml my-app-stack`:
 
 ```yaml
 
 version: "3.4"
 
 services:
-    php_fpm:
+    my_app:
         image: my-app-image:latest
         volumes:
             # All required volumes
@@ -22,7 +22,8 @@ services:
     # ... all other services
 ```
 
-Add the following:
+You should have the service `my-app-stack_my_app` running on your Swarm (you can check it with `docker service ls`).
+To activate swarm cron, add the `swarm_cron` service to your `docker-compose.yml` file as follows:
 
 ```yaml
 
@@ -48,10 +49,10 @@ services:
                     - node.role == manager        
         environment:
             SWARM_CRON_CRONTAB: |
-                * * * * *        my_app    bin/cron1
-                0 2 * * *        my_app    bin/cron2
+                * *     * * *        my-app-stack_my_app    bin/cron1
+                0 2     * * *        my-app-stack_my_app    bin/cron2
                 # You can have comments too            
-                0 [3-6] * * *    my_app    bin/cron3
+                0 [3-6] * * *    my-app-stack_my_app    bin/cron3
 ```
 
 You're done!
