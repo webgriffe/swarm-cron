@@ -41,11 +41,11 @@ services:
     swarm_cron:
         image: webgriffe/swarm-cron
         environment:
-            SWARM_CRON_CRONTAB: |-
-            * * * * *        my_app    bin/cron1
-            0 2 * * *        my_app    bin/cron2
-            # You can have comments too            
-            0 [3-6] * * *    my_app    bin/cron3
+            SWARM_CRON_CRONTAB: |
+                * * * * *        my_app    bin/cron1
+                0 2 * * *        my_app    bin/cron2
+                # You can have comments too            
+                0 [3-6] * * *    my_app    bin/cron3
 ```
 
 You're done!
