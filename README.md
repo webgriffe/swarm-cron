@@ -39,7 +39,7 @@ services:
     
     # ... all other services
     swarm_cron:
-        image: webgriffe/swarm-cron
+        image: webgriffe/swarm-cron:main
         volumes:
             - "/var/run/docker.sock:/var/run/docker.sock"
         deploy:
