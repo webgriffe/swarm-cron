@@ -1,6 +1,6 @@
 # Swarm Cron
 
-This tool allows to schedule cron jobs using existing services running on Docker Swarm and making sure that a `docker stack deploy` does not interrupt a runnning cron job.
+This tool allows to schedule cron jobs using existing services running on Docker Swarm and making sure that a `docker stack deploy` does not interrupt a running cron job.
 
 ## Usage
 
