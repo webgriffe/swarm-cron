@@ -5,7 +5,6 @@ declare(strict_types=1);
 
 use GuzzleHttp\Client;
 use GuzzleHttp\Exception\GuzzleException;
-use GuzzleHttp\Exception\RequestException;
 use Monolog\Handler\FilterHandler;
 use Monolog\Handler\StreamHandler;
 use Monolog\Level;
@@ -97,6 +96,7 @@ function run(string $service, string $command): int {
     $cronServiceSpec->Name = $cronServiceName;
     $cronServiceSpec->TaskTemplate->ContainerSpec->Command = ['/bin/sh'];
     $cronServiceSpec->TaskTemplate->ContainerSpec->Args = ['-c', $command];
+    $cronServiceSpec->TaskTemplate->ContainerSpec->Healthcheck = (object) ['Test' => ['NONE']];
     $cronServiceSpec->TaskTemplate->RestartPolicy->Condition = 'none';
     $cronServiceSpec->Mode = (object) ['ReplicatedJob' => ['MaxConcurrent' => 1, 'TotalCompletions' => 1]];
     $cronServiceSpec->UpdateConfig = null;
