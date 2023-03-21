@@ -65,3 +65,33 @@ Swarm cron is written in [PHP](https://www.php.net/) 🐘 and it's based on the 
 When started the `SWARM_CRON_CRONTAB ` is converted into a normal unix crontab where each line runs the `/srv/app/swarm-cron run [service_name] [command]` command. Then the Alpine's `crond` process is started and run.
 
 When a cron expression is due to run the `/srv/app/swarm-cron run [service_name] [command]` is executed. This command uses the [Docker Engine API](https://docs.docker.com/engine/api/) to "clone" the service whose name is `[service_name]` and to start as a [replicated job](https://docs.docker.com/engine/reference/commandline/service_create/#running-as-a-job) in the Swarm, setting the command of that replicated job service to `[command]`. Swarm cron also ensure that an already running cron job is not restarted again if not completed.
+
+## Contributing
+
+To be able to test changes on a local machine you have to do the following:
+
+1. Enter in swarm mode:
+
+	```bash
+	docker swarm init
+	```
+2. Create an example service to use to run cron jobs:
+
+	```bash
+	docker service create --name swarm_cron_test -l com.docker.stack.namespace=test_stack alpine
+	```
+3. Create an example swarm-cron crontab somewhere on your machine, for example in `/tmp/crontab`:
+
+	```
+	# A long running cron-job
+	* * * * *           swarm_cron_test    ping -c 80 google.com
+	# A short running cron-job
+	* * * * *           swarm_cron_test    date
+
+	# The content may vary depending on your needs
+	```
+4. Run swarm-cron:
+
+	```bash
+	docker build -t webgriffe/swarm-cron-scheduler:latest . && docker run --name swarm-cron --rm -v /var/run/docker.sock:/var/run/docker.sock -e "SWARM_CRON_CRONTAB=$(cat /tmp/crontab)" webgriffe/swarm-cron-scheduler:latest
+	```
