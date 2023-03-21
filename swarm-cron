@@ -141,26 +141,22 @@ function run(string $service, string $command): int {
     }
 
     try {
-        if ($cronServiceVersion === null) {
-            $client->request('POST', 'services/create', [
-                'json' => $cronServiceSpec,
+        if ($cronServiceVersion !== null) {
+            $client->request('DELETE', 'services/' . $cronServiceName, [
                 'curl' => [
                     CURLOPT_UNIX_SOCKET_PATH => '/var/run/docker.sock'
                 ]
             ]);
             $logger->info(
                 sprintf(
-                    'Started cron service "%s" with command "%s" from service "%s"',
+                    'Deleted old, not-running, cron service "%s" with command "%s" from service "%s"',
                     $cronServiceName,
                     $command,
                     $service
                 )
             );
-            return 0;
         }
-
-        $client->request('POST', 'services/' . $cronServiceName . '/update', [
-            'query' => ['version' => $cronServiceVersion],
+        $client->request('POST', 'services/create', [
             'json' => $cronServiceSpec,
             'curl' => [
                 CURLOPT_UNIX_SOCKET_PATH => '/var/run/docker.sock'
@@ -168,7 +164,7 @@ function run(string $service, string $command): int {
         ]);
         $logger->info(
             sprintf(
-                'Re-started cron service "%s" with command "%s" from service "%s"',
+                'Started cron service "%s" with command "%s" from service "%s"',
                 $cronServiceName,
                 $command,
                 $service
