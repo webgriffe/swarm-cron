@@ -23,12 +23,21 @@ $logger->pushHandler($stderrHandler);
 
 $client = new Client(['base_uri' => 'http://localhost/v1.41/']);
 
-$subcommand = $argv[1] ?? null;
+array_shift($argv); // Remove the script name.
+
+if (count($argv) === 0) {
+    echo 'At least one argument is required.';
+    // TODO print usage here.
+    exit(1);
+}
+
+$subcommand = array_shift($argv);
 if ($subcommand === 'crontab') {
     exit(crontab());
 }
 if ($subcommand === 'run') {
-    exit(run($argv[2], $argv[3]));
+    $service = array_shift($argv);
+    exit(run($service, $argv));
 }
 echo 'Invalid subcommand.';
 // TODO print usage here.
@@ -57,7 +66,7 @@ function crontab(): int {
         }
         $cronExpr = implode(' ', array_slice($crontabLineChunks, 0, 5));
         $service = escapeshellarg($crontabLineChunks[5]);
-        $command = escapeshellarg($crontabLineChunks[6]);
+        $command = $crontabLineChunks[6];
         $swarmCrontabLine = sprintf('%s /srv/app/swarm-cron run %s %s', $cronExpr, $service, $command);
         file_put_contents($crontabPath, $swarmCrontabLine . PHP_EOL, FILE_APPEND);
         $logger->info(sprintf('Crontab line: %s', $swarmCrontabLine));
@@ -72,8 +81,9 @@ function crontab(): int {
     return 0;
 }
 
-function run(string $service, string $command): int {
+function run(string $service, array $commandArray): int {
     global $logger, $client;
+    $command = implode(' ', $commandArray);
     $logger->info(sprintf('Preparing cron service with command "%s" and service "%s"', $command, $service));
 
     try {
@@ -94,8 +104,7 @@ function run(string $service, string $command): int {
     $cronServiceName = sprintf('swarm_cron_service_%s', md5($service . ':' . $command));
     $cronServiceSpec = $sourceServiceData->Spec;
     $cronServiceSpec->Name = $cronServiceName;
-    $cronServiceSpec->TaskTemplate->ContainerSpec->Command = ['/bin/sh'];
-    $cronServiceSpec->TaskTemplate->ContainerSpec->Args = ['-c', $command];
+    $cronServiceSpec->TaskTemplate->ContainerSpec->Args = $commandArray;
     $cronServiceSpec->TaskTemplate->ContainerSpec->Healthcheck = (object) ['Test' => ['NONE']];
     $cronServiceSpec->TaskTemplate->RestartPolicy->Condition = 'none';
     $cronServiceSpec->Mode = (object) ['ReplicatedJob' => ['MaxConcurrent' => 1, 'TotalCompletions' => 1]];
