@@ -78,7 +78,7 @@ To be able to test changes on a local machine you have to do the following:
 2. Create an example service to use to run cron jobs:
 
 	```bash
-	docker service create --name swarm_cron_test -l com.docker.stack.namespace=test_stack alpine
+	docker service create --name swarm_cron_test -l com.docker.stack.namespace=test_stack alpine ping -c 80 google.com
 	```
 3. Create an example swarm-cron crontab somewhere on your machine, for example in `/tmp/crontab`:
 
